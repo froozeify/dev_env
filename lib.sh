@@ -3,9 +3,12 @@
 # Source with: source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONF_DIR="$REPO_DIR/conf"
 USER_HOME_DIR="$REPO_DIR/user_home"
 ROOT_DIR="$REPO_DIR/root"
-APPEND_CONF="$REPO_DIR/append.conf"
+APPEND_CONF="$CONF_DIR/append.conf"
+TOOLS_CONF="$CONF_DIR/tools.conf"
+HOOKS_CONF="$CONF_DIR/hooks.conf"
 
 MARKER_BEGIN="# ===== BEGIN DOTFILES SYNC ====="
 MARKER_END="# ===== END DOTFILES SYNC ====="

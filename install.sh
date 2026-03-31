@@ -28,6 +28,56 @@ done
 load_append_files
 
 # --------------------------------------------------------------------------
+# Hooks
+# --------------------------------------------------------------------------
+declare -a HOOK_PATTERNS HOOK_COMMANDS
+declare -A TRIGGERED_HOOKS  # keyed by command for deduplication
+
+load_hooks() {
+  [[ ! -f "$HOOKS_CONF" ]] && return
+  while IFS= read -r raw_line; do
+    local line="${raw_line%%#*}"
+    trim line
+    [[ -z "$line" ]] && continue
+
+    local pattern="${line%%:::*}"; trim pattern
+    local command="${line#*:::}";  trim command
+    [[ -z "$pattern" || -z "$command" ]] && continue
+
+    HOOK_PATTERNS+=("$pattern")
+    HOOK_COMMANDS+=("$command")
+  done < "$HOOKS_CONF"
+}
+
+# Mark any hooks whose pattern is a prefix of the given relative path
+trigger_hooks() {
+  local rel="$1"
+  for i in "${!HOOK_PATTERNS[@]}"; do
+    local pattern="${HOOK_PATTERNS[$i]}"
+    if [[ "$rel" == "$pattern" || "$rel" == "$pattern"* ]]; then
+      TRIGGERED_HOOKS["${HOOK_COMMANDS[$i]}"]=1
+    fi
+  done
+}
+
+# Run (or preview) all triggered hooks, each exactly once
+run_triggered_hooks() {
+  [[ ${#TRIGGERED_HOOKS[@]} -eq 0 ]] && return
+
+  printf "\n${CYAN}${BOLD}--- Post-install hooks ---${RESET}\n"
+  for cmd in "${!TRIGGERED_HOOKS[@]}"; do
+    if $DRY_RUN; then
+      printf "  ${YELLOW}[dry-run]${RESET} Would run: $cmd\n"
+    else
+      printf "  ${CYAN}→${RESET} $cmd\n"
+      eval "$cmd" || printf "  ${YELLOW}(hook exited with error, continuing)${RESET}\n"
+    fi
+  done
+}
+
+load_hooks
+
+# --------------------------------------------------------------------------
 # Sync helpers
 # --------------------------------------------------------------------------
 sync_append() {
@@ -85,7 +135,7 @@ sync_overwrite() {
   printf "  ${GREEN}✓${RESET} Overwritten $target\n"
 }
 
-# Dispatch to sync_append or sync_overwrite based on the file's configured mode
+# Dispatch to sync_append or sync_overwrite, then trigger matching hooks
 sync_file() {
   local repo_file="$1" rel="$2" target="$3" use_sudo="${4:-false}"
   if is_append "$rel"; then
@@ -93,6 +143,7 @@ sync_file() {
   else
     sync_overwrite "$repo_file" "$target" "$use_sudo"
   fi
+  trigger_hooks "$rel"
 }
 
 # --------------------------------------------------------------------------
@@ -220,10 +271,7 @@ else
   printf "  ${YELLOW}(no root/ directory found)${RESET}\n"
 fi
 
+run_triggered_hooks
+
 echo ""
 printf "${GREEN}${BOLD}=== Done ===${RESET}\n"
-
-if [[ -d "$ROOT_DIR/usr/share/fonts" ]] && ! $DRY_RUN; then
-  echo "Refreshing font cache..."
-  fc-cache -f
-fi
