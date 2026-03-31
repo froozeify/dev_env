@@ -12,7 +12,7 @@ A lightweight, dependency-free system to synchronize development configurations 
 ## Quick Start
 
 ```bash
-git clone <your-repo-url> ~/dev_env
+git clone https://github.com/froozeify/dev_env ~/dev_env
 cd ~/dev_env
 
 # Preview what will happen
