@@ -1,0 +1,101 @@
+{
+  "version": 3,
+  "lines": [
+    [
+      {
+        "id": "3",
+        "type": "context-length",
+        "color": "brightBlack",
+        "rawValue": false
+      },
+      {
+        "id": "4",
+        "type": "separator"
+      },
+      {
+        "id": "72727daa-aa01-477d-9bdd-70e6ddeb02fb",
+        "type": "total-speed",
+        "metadata": {
+          "windowSeconds": "0"
+        }
+      },
+      {
+        "id": "a9718402-550b-45cb-914a-6c8bfdfb2d41",
+        "type": "flex-separator"
+      },
+      {
+        "id": "c216cd28-3ea3-4acb-9a10-3e9eb70fbf26",
+        "type": "context-bar",
+        "rawValue": false,
+        "metadata": {
+          "display": "progress-short"
+        }
+      }
+    ],
+    [
+      {
+        "id": "b00f7ba9-1983-4ce2-a176-8465f061906d",
+        "type": "session-clock"
+      },
+      {
+        "id": "1c81d33f-0807-4023-b0a5-bc37ec0362aa",
+        "type": "separator"
+      },
+      {
+        "id": "443ceac5-ac9f-462c-a073-2fc53d76146c",
+        "type": "session-cost"
+      },
+      {
+        "id": "ef27572a-1789-4a76-bbd3-1a476554d606",
+        "type": "flex-separator"
+      },
+      {
+        "id": "8b918c37-7dfc-4cc4-b422-f0f598589135",
+        "type": "reset-timer"
+      },
+      {
+        "id": "c5b38109-916b-4eee-b1cf-329b6049085d",
+        "type": "separator"
+      },
+      {
+        "id": "fa0591d2-cfff-48d5-acbb-14a14a981cf7",
+        "type": "session-usage",
+        "metadata": {
+          "display": "progress-short"
+        }
+      }
+    ],
+    [
+      {
+        "id": "c31ee9bc-b5b5-4513-b674-e589b9f66b3c",
+        "type": "model"
+      },
+      {
+        "id": "850d9868-ebdd-4d13-adc9-11090ec13c46",
+        "type": "separator"
+      },
+      {
+        "id": "ffba2f4d-1758-4eb4-9c78-e2eb51daaedb",
+        "type": "thinking-effort",
+        "rawValue": false
+      }
+    ]
+  ],
+  "flexMode": "full",
+  "compactThreshold": 60,
+  "colorLevel": 3,
+  "inheritSeparatorColors": false,
+  "globalBold": false,
+  "powerline": {
+    "enabled": false,
+    "separators": [
+      ""
+    ],
+    "separatorInvertBackground": [
+      false
+    ],
+    "startCaps": [],
+    "endCaps": [],
+    "autoAlign": false
+  }
+}
