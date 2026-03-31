@@ -1,18 +1,15 @@
 #!/usr/bin/env bash
-# backup.sh - Backup files that would be modified by install.sh
+# backup.sh - Backup files that would be modified by install.sh.
 #
 # Usage:
-#   ./backup.sh               Create a timestamped backup archive
-#   ./backup.sh --clean       Delete all backups
+#   ./backup.sh                   Create a timestamped backup archive
+#   ./backup.sh --clean           Delete all backups
 #   ./backup.sh --clean --keep N  Keep the N most recent backups
 
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKUP_DIR="${DOTFILES_BACKUP_DIR:-$HOME/.dotfiles-backup}"
-APPEND_CONF="$REPO_DIR/append.conf"
-USER_HOME_DIR="$REPO_DIR/user_home"
-ROOT_DIR="$REPO_DIR/root"
 
 # --------------------------------------------------------------------------
 # Parse arguments
@@ -33,7 +30,7 @@ done
 # --------------------------------------------------------------------------
 if $CLEAN; then
   if [[ ! -d "$BACKUP_DIR" ]]; then
-    echo "No backup directory found at $BACKUP_DIR"
+    printf "${YELLOW}No backup directory found at $BACKUP_DIR${RESET}\n"
     exit 0
   fi
 
@@ -41,84 +38,71 @@ if $CLEAN; then
   total=${#archives[@]}
 
   if [[ $total -eq 0 ]]; then
-    echo "No backups found in $BACKUP_DIR"
+    printf "${YELLOW}No backups found in $BACKUP_DIR${RESET}\n"
     exit 0
   fi
 
   if [[ $KEEP -gt 0 ]]; then
     if [[ $total -le $KEEP ]]; then
-      echo "Only $total backup(s) found, keeping all (--keep $KEEP)"
+      printf "${GREEN}Only $total backup(s) found, keeping all (--keep $KEEP)${RESET}\n"
       exit 0
     fi
     to_delete=("${archives[@]:0:$((total - KEEP))}")
-    echo "Keeping $KEEP most recent backup(s), deleting $((total - KEEP)):"
+    printf "${CYAN}Keeping $KEEP most recent backup(s), deleting $((total - KEEP)):${RESET}\n"
   else
     to_delete=("${archives[@]}")
-    echo "Deleting all $total backup(s):"
+    printf "${CYAN}Deleting all $total backup(s):${RESET}\n"
   fi
 
   for f in "${to_delete[@]}"; do
-    echo "  rm $f"
-    rm -f "$f"
+    printf "  ${RED}rm${RESET} $f\n"
+    rm --force "$f"
   done
-  echo "Done."
+  printf "${GREEN}Done.${RESET}\n"
   exit 0
 fi
 
 # --------------------------------------------------------------------------
 # Backup mode
 # --------------------------------------------------------------------------
-mkdir -p "$BACKUP_DIR"
+mkdir --parents "$BACKUP_DIR"
 TIMESTAMP=$(date +%Y-%m-%d_%H%M%S)
-STAGING=$(mktemp -d)
-trap 'rm -rf "$STAGING"' EXIT
-
-# Load append-mode file list
-declare -A APPEND_FILES
-if [[ -f "$APPEND_CONF" ]]; then
-  while IFS= read -r line; do
-    line="${line%%#*}"   # strip inline comments
-    line="${line// /}"   # strip spaces
-    [[ -z "$line" ]] && continue
-    APPEND_FILES["$line"]=1
-  done < "$APPEND_CONF"
-fi
+STAGING=$(mktemp --directory)
+trap 'rm --recursive --force "$STAGING"' EXIT
 
 backed_up=0
 
-# Backup user_home files
+# Copy each tracked user_home file to the staging area, preserving relative paths
 if [[ -d "$USER_HOME_DIR" ]]; then
   while IFS= read -r repo_file; do
-    rel="${repo_file#$USER_HOME_DIR/}"
-    target="$HOME/$rel"
+    target="$HOME/${repo_file#$USER_HOME_DIR/}"
     if [[ -e "$target" ]]; then
-      dest="$STAGING/user_home/$rel"
-      mkdir -p "$(dirname "$dest")"
-      cp -a "$target" "$dest"
+      dest="$STAGING/user_home/${repo_file#$USER_HOME_DIR/}"
+      mkdir --parents "$(dirname "$dest")"
+      cp --archive "$target" "$dest"
       backed_up=$((backed_up + 1))
     fi
   done < <(find "$USER_HOME_DIR" -type f)
 fi
 
-# Backup root files
+# Copy each tracked root file to the staging area, preserving absolute paths under root/
 if [[ -d "$ROOT_DIR" ]]; then
   while IFS= read -r repo_file; do
-    rel="${repo_file#$ROOT_DIR}"
-    target="$rel"
+    target="${repo_file#$ROOT_DIR}"
     if [[ -e "$target" ]]; then
-      dest="$STAGING/root/$rel"
-      mkdir -p "$(dirname "$dest")"
-      cp -a "$target" "$dest"
+      dest="$STAGING/root/$target"
+      mkdir --parents "$(dirname "$dest")"
+      cp --archive "$target" "$dest"
       backed_up=$((backed_up + 1))
     fi
   done < <(find "$ROOT_DIR" -type f)
 fi
 
 if [[ $backed_up -eq 0 ]]; then
-  echo "Nothing to back up (no target files exist yet)."
+  printf "${YELLOW}Nothing to back up (no target files exist yet).${RESET}\n"
   exit 0
 fi
 
 ARCHIVE="$BACKUP_DIR/backup-${TIMESTAMP}.tar.gz"
-tar -czf "$ARCHIVE" -C "$STAGING" .
-echo "Backed up $backed_up file(s) → $ARCHIVE"
+tar --create --gzip --file "$ARCHIVE" --directory "$STAGING" .
+printf "${GREEN}Backed up $backed_up file(s) → $ARCHIVE${RESET}\n"

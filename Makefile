@@ -1,11 +1,11 @@
-.PHONY: install backup clean-backups list diff check check-missing help
+.PHONY: install backup clean-backups list diff check help
 
 SHELL := /bin/bash
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
-install: ## Backup then sync all dotfiles to this machine
+install: check ## Backup then sync all dotfiles to this machine
 	@bash install.sh
 
 dry-run: ## Show what install would do without making changes
@@ -26,8 +26,5 @@ list: ## List all tracked files and their sync mode
 diff: ## Show differences between repo and installed files
 	@bash install.sh --diff
 
-check: ## Check which required tools are installed
+check: list ## Check which required tools are installed
 	@bash check.sh
-
-check-missing: ## Show only missing tools
-	@bash check.sh --missing
