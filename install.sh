@@ -74,8 +74,8 @@ sync_append() {
     # Replace existing block
     local tmp
     tmp=$(mktemp)
-    awk -v begin="$MARKER_BEGIN" -v end="$MARKER_END" -v block="$block" '
-      $0 == begin { print block; skip=1; next }
+    block="$block" awk -v begin="$MARKER_BEGIN" -v end="$MARKER_END" '
+      $0 == begin { print ENVIRON["block"]; skip=1; next }
       $0 == end   { skip=0; next }
       !skip        { print }
     ' "$target" > "$tmp"
@@ -173,9 +173,9 @@ if [[ "$MODE" == "diff" ]]; then
         # Compare only the managed block content
         managed=$(sed -n "/$MARKER_BEGIN/,/$MARKER_END/p" "$target" 2>/dev/null \
                   | grep -v "^$MARKER_BEGIN$" | grep -v "^$MARKER_END$" || true)
-        if ! diff <(echo "$managed") "$repo_file" > /dev/null 2>&1; then
+        if ! diff <(printf '%s\n' "$managed") "$repo_file" > /dev/null 2>&1; then
           echo "=== $target (managed block differs) ==="
-          diff <(echo "$managed") "$repo_file" || true
+          diff <(printf '%s\n' "$managed") "$repo_file" || true
           found_diff=true
         fi
       else
