@@ -1,4 +1,4 @@
-.PHONY: install backup clean-backups list diff check check-missing help
+.PHONY: install backup clean-backups list diff check help
 
 SHELL := /bin/bash
 
@@ -26,8 +26,5 @@ list: ## List all tracked files and their sync mode
 diff: ## Show differences between repo and installed files
 	@bash install.sh --diff
 
-check: ## Check which required tools are installed
+check: list ## Check which required tools are installed
 	@bash check.sh
-
-check-missing: ## Show only missing tools
-	@bash check.sh --missing

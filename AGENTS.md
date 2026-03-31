@@ -57,8 +57,7 @@ indicator but don't fail.
 ## Common Commands
 
 ```bash
-make check          # Check which tools are installed
-make check-missing  # Show only missing tools
+make check          # List tracked files then check which tools are installed
 make list           # List tracked files and their sync mode
 make diff           # Diff repo vs installed files
 make install        # Backup + sync everything

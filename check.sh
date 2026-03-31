@@ -2,9 +2,8 @@
 # check.sh - Verify required and optional tools are installed on this machine.
 #
 # Usage:
-#   ./check.sh              Check all tools
-#   ./check.sh --missing    Show only missing tools
-#   ./check.sh --json       Output as JSON (for scripting)
+#   ./check.sh        Check all tools
+#   ./check.sh --json Output as JSON (for scripting)
 
 set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -12,13 +11,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 # --------------------------------------------------------------------------
 # Parse arguments
 # --------------------------------------------------------------------------
-MISSING_ONLY=false
 JSON_OUTPUT=false
 
 for arg in "$@"; do
   case "$arg" in
-    --missing) MISSING_ONLY=true ;;
-    --json)    JSON_OUTPUT=true ;;
+    --json) JSON_OUTPUT=true ;;
     *) echo "Unknown option: $arg" >&2; exit 1 ;;
   esac
 done
@@ -31,7 +28,7 @@ fi
 # --------------------------------------------------------------------------
 # Parse tools.conf into parallel arrays
 # --------------------------------------------------------------------------
-declare -a NAMES CHECKS DESCS OPTIONALS
+declare -a NAMES=() CHECKS=() DESCS=() OPTIONALS=()
 current_group=""
 
 while IFS= read -r raw_line; do
@@ -65,7 +62,7 @@ done < "$TOOLS_CONF"
 # --------------------------------------------------------------------------
 # Run checks
 # --------------------------------------------------------------------------
-declare -a INSTALLED MISSING_REQUIRED MISSING_OPTIONAL
+declare -a INSTALLED=() MISSING_REQUIRED=() MISSING_OPTIONAL=()
 
 ok_count=0
 missing_required_count=0
@@ -103,8 +100,6 @@ for i in "${!NAMES[@]}"; do
       "$name" "$group" "$status" "$optional" "$desc"
     continue
   fi
-
-  $MISSING_ONLY && [[ "$status" == "installed" ]] && continue
 
   if [[ "$group" != "$prev_group" ]]; then
     [[ -n "$prev_group" ]] && echo ""

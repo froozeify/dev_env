@@ -172,10 +172,14 @@ if [[ "$MODE" == "list" ]]; then
     while IFS= read -r repo_file; do
       rel="user_home/${repo_file#$USER_HOME_DIR/}"
       target="$HOME/${repo_file#$USER_HOME_DIR/}"
-      is_append "$rel" && mode="APPEND" || mode="OVERWRITE"
+      if is_append "$rel"; then
+        mode_color="$CYAN"; mode_text="[APPEND]"
+      else
+        mode_color="$YELLOW"; mode_text="[OVERWRITE]"
+      fi
       [[ -e "$target" ]] \
-        && printf "  ${CYAN}%-16s${RESET}  %s  ${GREEN}✓${RESET}\n" "[$mode]" "$target" \
-        || printf "  ${CYAN}%-16s${RESET}  %s  ${RED}✗ (not installed)${RESET}\n" "[$mode]" "$target"
+        && printf "  ${mode_color}%-16s${RESET}  %s  ${GREEN}✓${RESET}\n" "$mode_text" "$target" \
+        || printf "  ${mode_color}%-16s${RESET}  %s  ${RED}✗ (not installed)${RESET}\n" "$mode_text" "$target"
     done < <(find "$USER_HOME_DIR" -type f | sort)
   fi
 
@@ -183,10 +187,14 @@ if [[ "$MODE" == "list" ]]; then
     while IFS= read -r repo_file; do
       rel="root${repo_file#$ROOT_DIR}"
       target="${repo_file#$ROOT_DIR}"
-      is_append "$rel" && mode="APPEND" || mode="OVERWRITE (sudo)"
+      if is_append "$rel"; then
+        mode_color="$MAGENTA"; mode_text="[SUDO APPEND]"
+      else
+        mode_color="$RED"; mode_text="[SUDO OVERWRITE]"
+      fi
       [[ -e "$target" ]] \
-        && printf "  ${CYAN}%-16s${RESET}  %s  ${GREEN}✓${RESET}\n" "[$mode]" "$target" \
-        || printf "  ${CYAN}%-16s${RESET}  %s  ${RED}✗ (not installed)${RESET}\n" "[$mode]" "$target"
+        && printf "  ${mode_color}%-16s${RESET}  %s  ${GREEN}✓${RESET}\n" "$mode_text" "$target" \
+        || printf "  ${mode_color}%-16s${RESET}  %s  ${RED}✗ (not installed)${RESET}\n" "$mode_text" "$target"
     done < <(find "$ROOT_DIR" -type f | sort)
   fi
 
