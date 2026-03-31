@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check.sh - Verify required tools are installed on this machine
+# check.sh - Verify required and optional tools are installed on this machine.
 #
 # Usage:
 #   ./check.sh              Check all tools
@@ -7,16 +7,9 @@
 #   ./check.sh --json       Output as JSON (for scripting)
 
 set -uo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TOOLS_CONF="$REPO_DIR/tools.conf"
-
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-RESET='\033[0m'
-BOLD='\033[1m'
 
 # --------------------------------------------------------------------------
 # Parse arguments
@@ -38,43 +31,37 @@ if [[ ! -f "$TOOLS_CONF" ]]; then
 fi
 
 # --------------------------------------------------------------------------
-# Parse tools.conf
+# Parse tools.conf into parallel arrays
 # --------------------------------------------------------------------------
 declare -a NAMES CHECKS DESCS OPTIONALS
 current_group=""
 
-trim() { local s="$1"; s="${s#"${s%%[![:space:]]*}"}"; s="${s%"${s##*[![:space:]]}"}"; echo "$s"; }
-
 while IFS= read -r raw_line; do
-  # Detect group headers (comments starting with # ---)
+  # Group header: # --- Group Name ---
   if [[ "$raw_line" =~ ^#[[:space:]]*---[[:space:]]*(.+)[[:space:]]*---[[:space:]]*$ ]]; then
     current_group="${BASH_REMATCH[1]}"
     continue
   fi
 
-  # Strip full-line comments and empty lines
+  # Strip inline comments and skip blank lines
   line="${raw_line%%#*}"
-  line="${line#"${line%%[![:space:]]*}"}"  # ltrim
-  line="${line%"${line##*[![:space:]]}"}"  # rtrim
+  trim line
   [[ -z "$line" ]] && continue
 
-  name="$(trim "${line%%:::*}")"
+  name="${line%%:::*}";  trim name
   rest="${line#*:::}"
-  check="$(trim "${rest%%:::*}")"
+  check="${rest%%:::*}"; trim check
   rest="${rest#*:::}"
-  desc="$(trim "${rest%%:::*}")"
+  desc="${rest%%:::*}";  trim desc
   rest="${rest#*:::}"
-  flag="$(trim "$rest")"
+  flag="${rest%%:::*}";  trim flag
 
   [[ -z "$name" || -z "$check" ]] && continue
-
-  optional=false
-  [[ "$flag" == "optional" ]] && optional=true
 
   NAMES+=("${current_group}::${name}")
   CHECKS+=("$check")
   DESCS+=("$desc")
-  OPTIONALS+=("$optional")
+  [[ "$flag" == "optional" ]] && OPTIONALS+=(true) || OPTIONALS+=(false)
 done < "$TOOLS_CONF"
 
 # --------------------------------------------------------------------------
@@ -82,17 +69,12 @@ done < "$TOOLS_CONF"
 # --------------------------------------------------------------------------
 declare -a INSTALLED MISSING_REQUIRED MISSING_OPTIONAL
 
-total=${#NAMES[@]}
 ok_count=0
 missing_required_count=0
 missing_optional_count=0
-
-if $JSON_OUTPUT; then
-  printf '[\n'
-  first=true
-fi
-
 prev_group=""
+
+$JSON_OUTPUT && printf '[\n' && json_first=true
 
 for i in "${!NAMES[@]}"; do
   group="${NAMES[$i]%%::*}"
@@ -117,18 +99,15 @@ for i in "${!NAMES[@]}"; do
   fi
 
   if $JSON_OUTPUT; then
-    $first || printf ',\n'
-    first=false
+    ${json_first} || printf ',\n'
+    json_first=false
     printf '  {"name": "%s", "group": "%s", "status": "%s", "optional": %s, "description": "%s"}' \
       "$name" "$group" "$status" "$optional" "$desc"
     continue
   fi
 
-  if $MISSING_ONLY && [[ "$status" == "installed" ]]; then
-    continue
-  fi
+  $MISSING_ONLY && [[ "$status" == "installed" ]] && continue
 
-  # Print group header when it changes
   if [[ "$group" != "$prev_group" ]]; then
     [[ -n "$prev_group" ]] && echo ""
     printf "${CYAN}${BOLD}%s${RESET}\n" "$group"
@@ -152,21 +131,20 @@ fi
 # --------------------------------------------------------------------------
 # Summary
 # --------------------------------------------------------------------------
+total=${#NAMES[@]}
+missing_count=$((missing_required_count + missing_optional_count))
+
 echo ""
 echo "──────────────────────────────────────"
-
-missing_count=$((missing_required_count + missing_optional_count))
 
 if [[ $missing_count -eq 0 ]]; then
   printf "${GREEN}${BOLD}All $total tools are installed.${RESET}\n"
 else
   printf "${BOLD}%d/%d tools installed.${RESET}\n" "$ok_count" "$total"
-  if [[ $missing_required_count -gt 0 ]]; then
+  [[ $missing_required_count -gt 0 ]] && \
     printf "  ${RED}Missing (required): %s${RESET}\n" "$(IFS=', '; echo "${MISSING_REQUIRED[*]}")"
-  fi
-  if [[ $missing_optional_count -gt 0 ]]; then
+  [[ $missing_optional_count -gt 0 ]] && \
     printf "  ${YELLOW}Missing (optional): %s${RESET}\n" "$(IFS=', '; echo "${MISSING_OPTIONAL[*]}")"
-  fi
 fi
 
 # Exit 1 only if required tools are missing (useful in CI or scripting)

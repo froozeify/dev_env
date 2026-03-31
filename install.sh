@@ -1,21 +1,14 @@
 #!/usr/bin/env bash
-# install.sh - Sync dotfiles to the current machine
+# install.sh - Sync dotfiles to the current machine.
 #
 # Usage:
-#   ./install.sh          Backup then sync all files
+#   ./install.sh            Backup then sync all files
 #   ./install.sh --dry-run  Show what would happen without making changes
-#   ./install.sh --list   List all tracked files and their sync mode
-#   ./install.sh --diff   Show diff between repo and installed files
+#   ./install.sh --list     List all tracked files and their sync mode
+#   ./install.sh --diff     Show diff between repo and installed files
 
 set -euo pipefail
-
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-APPEND_CONF="$REPO_DIR/append.conf"
-USER_HOME_DIR="$REPO_DIR/user_home"
-ROOT_DIR="$REPO_DIR/root"
-
-MARKER_BEGIN="# ===== BEGIN DOTFILES SYNC ====="
-MARKER_END="# ===== END DOTFILES SYNC ====="
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 # --------------------------------------------------------------------------
 # Parse arguments
@@ -25,113 +18,97 @@ DRY_RUN=false
 
 for arg in "$@"; do
   case "$arg" in
-    --dry-run)  DRY_RUN=true ;;
-    --list)     MODE="list" ;;
-    --diff)     MODE="diff" ;;
+    --dry-run) DRY_RUN=true ;;
+    --list)    MODE="list" ;;
+    --diff)    MODE="diff" ;;
     *) echo "Unknown option: $arg" >&2; exit 1 ;;
   esac
 done
 
-# --------------------------------------------------------------------------
-# Load append-mode file list
-# --------------------------------------------------------------------------
-declare -A APPEND_FILES
-if [[ -f "$APPEND_CONF" ]]; then
-  while IFS= read -r line; do
-    line="${line%%#*}"
-    line="${line// /}"
-    [[ -z "$line" ]] && continue
-    APPEND_FILES["$line"]=1
-  done < "$APPEND_CONF"
-fi
+load_append_files
 
 # --------------------------------------------------------------------------
-# Helpers
+# Sync helpers
 # --------------------------------------------------------------------------
-is_append() {
-  local rel="$1"   # e.g. user_home/.zshrc or root/usr/share/fonts/...
-  [[ -n "${APPEND_FILES[$rel]+_}" ]]
-}
-
 sync_append() {
-  local repo_file="$1"
-  local target="$2"
+  local repo_file="$1" target="$2"
 
+  # Build the full managed block that will be injected into the target file
   local block
-  block="$MARKER_BEGIN"$'\n'
-  block+="$(cat "$repo_file")"$'\n'
-  block+="$MARKER_END"
+  block="${MARKER_BEGIN}"$'\n'"$(cat "$repo_file")"$'\n'"${MARKER_END}"
 
+  # Target doesn't exist yet — create it with just the managed block
   if [[ ! -f "$target" ]]; then
-    if $DRY_RUN; then echo "  [dry-run] Would create $target and append managed block"; return; fi
-    mkdir -p "$(dirname "$target")"
+    $DRY_RUN && { printf "  ${YELLOW}[dry-run]${RESET} Would create $target\n"; return; }
+    mkdir --parents "$(dirname "$target")"
     printf '%s\n' "$block" > "$target"
-    echo "  Created $target with managed block"
+    printf "  ${GREEN}✓${RESET} Created $target\n"
     return
   fi
 
-  if grep -qF "$MARKER_BEGIN" "$target" 2>/dev/null; then
-    # Replace existing block
+  if grep --quiet --fixed-strings "$MARKER_BEGIN" "$target"; then
+    # Managed block already exists — replace it in-place using a temp file.
+    # Block is passed via ENVIRON instead of awk -v to prevent awk from
+    # interpreting escape sequences (e.g. \033 → ESC).
     local tmp
-    tmp=$(mktemp)
+    tmp=$(mktemp --suffix=.dotfiles)
     block="$block" awk -v begin="$MARKER_BEGIN" -v end="$MARKER_END" '
       $0 == begin { print ENVIRON["block"]; skip=1; next }
       $0 == end   { skip=0; next }
       !skip        { print }
     ' "$target" > "$tmp"
     if $DRY_RUN; then
-      echo "  [dry-run] Would update managed block in $target"
-      rm -f "$tmp"
+      printf "  ${YELLOW}[dry-run]${RESET} Would update managed block in $target\n"
+      rm --force "$tmp"
     else
       mv "$tmp" "$target"
-      echo "  Updated managed block in $target"
+      printf "  ${GREEN}✓${RESET} Updated $target\n"
     fi
   else
-    # Append new block
-    if $DRY_RUN; then echo "  [dry-run] Would append managed block to $target"; return; fi
+    # No managed block yet — append one at the end of the file
+    $DRY_RUN && { printf "  ${YELLOW}[dry-run]${RESET} Would append to $target\n"; return; }
     printf '\n%s\n' "$block" >> "$target"
-    echo "  Appended managed block to $target"
+    printf "  ${GREEN}✓${RESET} Appended to $target\n"
   fi
 }
 
 sync_overwrite() {
-  local repo_file="$1"
-  local target="$2"
-  local use_sudo="${3:-false}"
+  local repo_file="$1" target="$2" use_sudo="${3:-false}"
 
-  if $DRY_RUN; then
-    echo "  [dry-run] Would overwrite $target"
-    return
-  fi
-
-  mkdir -p "$(dirname "$target")"
+  $DRY_RUN && { printf "  ${YELLOW}[dry-run]${RESET} Would overwrite $target\n"; return; }
+  mkdir --parents "$(dirname "$target")"
   if $use_sudo; then
-    sudo cp -a "$repo_file" "$target"
+    sudo cp --archive "$repo_file" "$target"
   else
-    cp -a "$repo_file" "$target"
+    cp --archive "$repo_file" "$target"
   fi
-  echo "  Overwritten $target"
+  printf "  ${GREEN}✓${RESET} Overwritten $target\n"
+}
+
+# Dispatch to sync_append or sync_overwrite based on the file's configured mode
+sync_file() {
+  local repo_file="$1" rel="$2" target="$3" use_sudo="${4:-false}"
+  if is_append "$rel"; then
+    sync_append "$repo_file" "$target"
+  else
+    sync_overwrite "$repo_file" "$target" "$use_sudo"
+  fi
 }
 
 # --------------------------------------------------------------------------
 # List mode
 # --------------------------------------------------------------------------
 if [[ "$MODE" == "list" ]]; then
-  echo "Tracked files:"
-  echo ""
+  printf "${BOLD}Tracked files:${RESET}\n\n"
 
   if [[ -d "$USER_HOME_DIR" ]]; then
     while IFS= read -r repo_file; do
       rel="user_home/${repo_file#$USER_HOME_DIR/}"
       target="$HOME/${repo_file#$USER_HOME_DIR/}"
-      if is_append "$rel"; then
-        mode="APPEND"
-      else
-        mode="OVERWRITE"
-      fi
-      exists="✓"
-      [[ ! -e "$target" ]] && exists="✗ (not installed)"
-      printf "  %-10s  %s  %s\n" "[$mode]" "$target" "$exists"
+      is_append "$rel" && mode="APPEND" || mode="OVERWRITE"
+      [[ -e "$target" ]] \
+        && printf "  ${CYAN}%-16s${RESET}  %s  ${GREEN}✓${RESET}\n" "[$mode]" "$target" \
+        || printf "  ${CYAN}%-16s${RESET}  %s  ${RED}✗ (not installed)${RESET}\n" "[$mode]" "$target"
     done < <(find "$USER_HOME_DIR" -type f | sort)
   fi
 
@@ -139,16 +116,13 @@ if [[ "$MODE" == "list" ]]; then
     while IFS= read -r repo_file; do
       rel="root${repo_file#$ROOT_DIR}"
       target="${repo_file#$ROOT_DIR}"
-      if is_append "$rel"; then
-        mode="APPEND"
-      else
-        mode="OVERWRITE (sudo)"
-      fi
-      exists="✓"
-      [[ ! -e "$target" ]] && exists="✗ (not installed)"
-      printf "  %-10s  %s  %s\n" "[$mode]" "$target" "$exists"
+      is_append "$rel" && mode="APPEND" || mode="OVERWRITE (sudo)"
+      [[ -e "$target" ]] \
+        && printf "  ${CYAN}%-16s${RESET}  %s  ${GREEN}✓${RESET}\n" "[$mode]" "$target" \
+        || printf "  ${CYAN}%-16s${RESET}  %s  ${RED}✗ (not installed)${RESET}\n" "[$mode]" "$target"
     done < <(find "$ROOT_DIR" -type f | sort)
   fi
+
   exit 0
 fi
 
@@ -160,27 +134,28 @@ if [[ "$MODE" == "diff" ]]; then
 
   if [[ -d "$USER_HOME_DIR" ]]; then
     while IFS= read -r repo_file; do
-      target="$HOME/${repo_file#$USER_HOME_DIR/}"
       rel="user_home/${repo_file#$USER_HOME_DIR/}"
+      target="$HOME/${repo_file#$USER_HOME_DIR/}"
 
       if [[ ! -e "$target" ]]; then
-        echo "=== $target (not installed) ==="
+        printf "${CYAN}${BOLD}=== $target${RESET} ${RED}(not installed)${RESET}\n"
         found_diff=true
         continue
       fi
 
       if is_append "$rel"; then
-        # Compare only the managed block content
-        managed=$(sed -n "/$MARKER_BEGIN/,/$MARKER_END/p" "$target" 2>/dev/null \
-                  | grep -v "^$MARKER_BEGIN$" | grep -v "^$MARKER_END$" || true)
+        # Extract only the content between the markers, strip the marker lines themselves
+        managed=$(sed --quiet "/$MARKER_BEGIN/,/$MARKER_END/p" "$target" 2>/dev/null \
+                  | grep --invert-match "^$MARKER_BEGIN$" \
+                  | grep --invert-match "^$MARKER_END$" || true)
         if ! diff <(printf '%s\n' "$managed") "$repo_file" > /dev/null 2>&1; then
-          echo "=== $target (managed block differs) ==="
+          printf "${CYAN}${BOLD}=== $target${RESET} ${YELLOW}(managed block differs)${RESET}\n"
           diff <(printf '%s\n' "$managed") "$repo_file" || true
           found_diff=true
         fi
       else
         if ! diff "$repo_file" "$target" > /dev/null 2>&1; then
-          echo "=== $target ==="
+          printf "${CYAN}${BOLD}=== $target${RESET}\n"
           diff "$repo_file" "$target" || true
           found_diff=true
         fi
@@ -190,76 +165,64 @@ if [[ "$MODE" == "diff" ]]; then
 
   if [[ -d "$ROOT_DIR" ]]; then
     while IFS= read -r repo_file; do
+      rel="root${repo_file#$ROOT_DIR}"
       target="${repo_file#$ROOT_DIR}"
+
       if [[ ! -e "$target" ]]; then
-        echo "=== $target (not installed) ==="
+        printf "${CYAN}${BOLD}=== $target${RESET} ${RED}(not installed)${RESET}\n"
         found_diff=true
         continue
       fi
+
       if ! diff "$repo_file" "$target" > /dev/null 2>&1; then
-        echo "=== $target ==="
+        printf "${CYAN}${BOLD}=== $target${RESET}\n"
         diff "$repo_file" "$target" || true
         found_diff=true
       fi
     done < <(find "$ROOT_DIR" -type f | sort)
   fi
 
-  if ! $found_diff; then
-    echo "Everything is up to date."
-  fi
+  $found_diff || printf "${GREEN}Everything is up to date.${RESET}\n"
   exit 0
 fi
 
 # --------------------------------------------------------------------------
 # Install mode
 # --------------------------------------------------------------------------
-echo "=== Dotfiles Sync ==="
-echo ""
+printf "${BOLD}=== Dotfiles Sync ===${RESET}\n\n"
 
-# Backup first
 if ! $DRY_RUN; then
-  echo "--- Backup ---"
+  printf "${CYAN}${BOLD}--- Backup ---${RESET}\n"
   bash "$REPO_DIR/backup.sh"
   echo ""
 fi
 
-echo "--- Syncing user_home → $HOME ---"
+printf "${CYAN}${BOLD}--- Syncing user_home → $HOME ---${RESET}\n"
 if [[ -d "$USER_HOME_DIR" ]]; then
   while IFS= read -r repo_file; do
     rel="user_home/${repo_file#$USER_HOME_DIR/}"
     target="$HOME/${repo_file#$USER_HOME_DIR/}"
-
-    if is_append "$rel"; then
-      sync_append "$repo_file" "$target"
-    else
-      sync_overwrite "$repo_file" "$target" false
-    fi
+    sync_file "$repo_file" "$rel" "$target"
   done < <(find "$USER_HOME_DIR" -type f | sort)
 else
-  echo "  (no user_home/ directory found)"
+  printf "  ${YELLOW}(no user_home/ directory found)${RESET}\n"
 fi
 
 echo ""
-echo "--- Syncing root → / (may require sudo) ---"
+printf "${CYAN}${BOLD}--- Syncing root → / (may require sudo) ---${RESET}\n"
 if [[ -d "$ROOT_DIR" ]]; then
   while IFS= read -r repo_file; do
     rel="root${repo_file#$ROOT_DIR}"
     target="${repo_file#$ROOT_DIR}"
-
-    if is_append "$rel"; then
-      sync_append "$repo_file" "$target"
-    else
-      sync_overwrite "$repo_file" "$target" true
-    fi
+    sync_file "$repo_file" "$rel" "$target" true
   done < <(find "$ROOT_DIR" -type f | sort)
 else
-  echo "  (no root/ directory found)"
+  printf "  ${YELLOW}(no root/ directory found)${RESET}\n"
 fi
 
 echo ""
-echo "=== Done ==="
+printf "${GREEN}${BOLD}=== Done ===${RESET}\n"
 
-# Refresh font cache if fonts were installed
 if [[ -d "$ROOT_DIR/usr/share/fonts" ]] && ! $DRY_RUN; then
   echo "Refreshing font cache..."
   fc-cache -f
