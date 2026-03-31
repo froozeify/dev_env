@@ -30,8 +30,8 @@ load_append_files
 # --------------------------------------------------------------------------
 # Hooks
 # --------------------------------------------------------------------------
-declare -a HOOK_PATTERNS HOOK_COMMANDS
-declare -A TRIGGERED_HOOKS  # keyed by command for deduplication
+declare -a HOOK_PATTERNS=() HOOK_COMMANDS=()
+declare -A TRIGGERED_HOOKS=()  # keyed by command for deduplication
 
 load_hooks() {
   [[ ! -f "$HOOKS_CONF" ]] && return
@@ -97,7 +97,21 @@ sync_append() {
   fi
 
   if grep --quiet --fixed-strings "$MARKER_BEGIN" "$target"; then
-    # Managed block already exists — replace it in-place using a temp file.
+    # Managed block already exists — check if it differs before doing any work
+    local managed
+    managed=$(sed --quiet "/$MARKER_BEGIN/,/$MARKER_END/p" "$target" 2>/dev/null \
+              | grep --invert-match "^$MARKER_BEGIN$" \
+              | grep --invert-match "^$MARKER_END$" || true)
+    if diff <(printf '%s\n' "$managed") "$repo_file" > /dev/null 2>&1; then
+      return 1  # already up to date, nothing to do
+    fi
+
+    if $DRY_RUN; then
+      printf "  ${YELLOW}[dry-run]${RESET} Would update managed block in $target\n"
+      return
+    fi
+
+    # Replace block in-place using a temp file.
     # Block is passed via ENVIRON instead of awk -v to prevent awk from
     # interpreting escape sequences (e.g. \033 → ESC).
     local tmp
@@ -107,13 +121,8 @@ sync_append() {
       $0 == end   { skip=0; next }
       !skip        { print }
     ' "$target" > "$tmp"
-    if $DRY_RUN; then
-      printf "  ${YELLOW}[dry-run]${RESET} Would update managed block in $target\n"
-      rm --force "$tmp"
-    else
-      mv "$tmp" "$target"
-      printf "  ${GREEN}✓${RESET} Updated $target\n"
-    fi
+    mv "$tmp" "$target"
+    printf "  ${GREEN}✓${RESET} Updated $target\n"
   else
     # No managed block yet — append one at the end of the file
     $DRY_RUN && { printf "  ${YELLOW}[dry-run]${RESET} Would append to $target\n"; return; }
@@ -125,6 +134,11 @@ sync_append() {
 sync_overwrite() {
   local repo_file="$1" target="$2" use_sudo="${3:-false}"
 
+  # Skip if already identical
+  if [[ -f "$target" ]] && diff "$repo_file" "$target" > /dev/null 2>&1; then
+    return 1  # already up to date, nothing to do
+  fi
+
   $DRY_RUN && { printf "  ${YELLOW}[dry-run]${RESET} Would overwrite $target\n"; return; }
   mkdir --parents "$(dirname "$target")"
   if $use_sudo; then
@@ -135,15 +149,17 @@ sync_overwrite() {
   printf "  ${GREEN}✓${RESET} Overwritten $target\n"
 }
 
-# Dispatch to sync_append or sync_overwrite, then trigger matching hooks
+# Dispatch to sync_append or sync_overwrite, then trigger matching hooks.
+# Hooks only fire when the file was changed (or would be changed in dry-run).
 sync_file() {
   local repo_file="$1" rel="$2" target="$3" use_sudo="${4:-false}"
+  local changed=false
   if is_append "$rel"; then
-    sync_append "$repo_file" "$target"
+    sync_append "$repo_file" "$target" && changed=true
   else
-    sync_overwrite "$repo_file" "$target" "$use_sudo"
+    sync_overwrite "$repo_file" "$target" "$use_sudo" && changed=true
   fi
-  trigger_hooks "$rel"
+  if $changed; then trigger_hooks "$rel"; fi
 }
 
 # --------------------------------------------------------------------------

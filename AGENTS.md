@@ -85,6 +85,20 @@ All scripts source `lib.sh` which provides:
 - `load_append_files` — populates `APPEND_FILES` from `conf/append.conf`
 - `is_append rel` — returns true if the relative path is in append mode
 
+## Code Style
+
+- **Keep comments.** Do not strip inline or section comments when refactoring. Comments that explain *why*
+  something is done (e.g. why `ENVIRON` is used instead of `awk -v`) are especially important to preserve.
+- **Use full flag names** in shell commands where they exist: `--parents`, `--archive`, `--quiet`,
+  `--fixed-strings`, `--invert-match`, `--force`, `--recursive`, etc. Short flags are harder to read
+  for contributors unfamiliar with every option.
+- **Colored output.** All user-facing output in scripts should use the color variables from `lib.sh`.
+  Section headers in cyan+bold, success in green, warnings/dry-run in yellow, errors in red.
+- **Dev-friendly structure.** Scripts use `# ---` section banners. Keep that convention.
+  Functions should have a one-line comment above them explaining purpose unless the name is self-evident.
+- **Don't over-abstract.** Three similar lines of code is fine. Only extract a helper when the same
+  logic appears in multiple files or the function makes intent significantly clearer.
+
 ## Constraints
 
 - No external dependencies (no `yq`, `jq`, `python`, etc.) — bash only.
