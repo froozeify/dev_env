@@ -40,8 +40,10 @@ fi
 # --------------------------------------------------------------------------
 # Parse tools.conf
 # --------------------------------------------------------------------------
-declare -a NAMES CHECKS DESCS
+declare -a NAMES CHECKS DESCS OPTIONALS
 current_group=""
+
+trim() { local s="$1"; s="${s#"${s%%[![:space:]]*}"}"; s="${s%"${s##*[![:space:]]}"}"; echo "$s"; }
 
 while IFS= read -r raw_line; do
   # Detect group headers (comments starting with # ---)
@@ -56,32 +58,34 @@ while IFS= read -r raw_line; do
   line="${line%"${line##*[![:space:]]}"}"  # rtrim
   [[ -z "$line" ]] && continue
 
-  name="${line%%:::*}"
+  name="$(trim "${line%%:::*}")"
   rest="${line#*:::}"
-  check="${rest%%:::*}"
-  desc="${rest#*:::}"
-
-  # Trim each field
-  name="${name#"${name%%[![:space:]]*}"}"; name="${name%"${name##*[![:space:]]}"}"
-  check="${check#"${check%%[![:space:]]*}"}"; check="${check%"${check##*[![:space:]]}"}"
-  desc="${desc#"${desc%%[![:space:]]*}"}"; desc="${desc%"${desc##*[![:space:]]}"}"
+  check="$(trim "${rest%%:::*}")"
+  rest="${rest#*:::}"
+  desc="$(trim "${rest%%:::*}")"
+  rest="${rest#*:::}"
+  flag="$(trim "$rest")"
 
   [[ -z "$name" || -z "$check" ]] && continue
+
+  optional=false
+  [[ "$flag" == "optional" ]] && optional=true
 
   NAMES+=("${current_group}::${name}")
   CHECKS+=("$check")
   DESCS+=("$desc")
+  OPTIONALS+=("$optional")
 done < "$TOOLS_CONF"
 
 # --------------------------------------------------------------------------
 # Run checks
 # --------------------------------------------------------------------------
-declare -a INSTALLED MISSING
-declare -A GROUP_RESULTS  # group -> "ok" or "missing"
+declare -a INSTALLED MISSING_REQUIRED MISSING_OPTIONAL
 
 total=${#NAMES[@]}
 ok_count=0
-missing_count=0
+missing_required_count=0
+missing_optional_count=0
 
 if $JSON_OUTPUT; then
   printf '[\n'
@@ -95,6 +99,7 @@ for i in "${!NAMES[@]}"; do
   name="${NAMES[$i]##*::}"
   check="${CHECKS[$i]}"
   desc="${DESCS[$i]}"
+  optional="${OPTIONALS[$i]}"
 
   if eval "$check" > /dev/null 2>&1; then
     status="installed"
@@ -102,15 +107,20 @@ for i in "${!NAMES[@]}"; do
     INSTALLED+=("$name")
   else
     status="missing"
-    missing_count=$((missing_count + 1))
-    MISSING+=("$name")
+    if $optional; then
+      missing_optional_count=$((missing_optional_count + 1))
+      MISSING_OPTIONAL+=("$name")
+    else
+      missing_required_count=$((missing_required_count + 1))
+      MISSING_REQUIRED+=("$name")
+    fi
   fi
 
   if $JSON_OUTPUT; then
     $first || printf ',\n'
     first=false
-    printf '  {"name": "%s", "group": "%s", "status": "%s", "description": "%s"}' \
-      "$name" "$group" "$status" "$desc"
+    printf '  {"name": "%s", "group": "%s", "status": "%s", "optional": %s, "description": "%s"}' \
+      "$name" "$group" "$status" "$optional" "$desc"
     continue
   fi
 
@@ -127,6 +137,8 @@ for i in "${!NAMES[@]}"; do
 
   if [[ "$status" == "installed" ]]; then
     printf "  ${GREEN}✓${RESET}  %-22s  %s\n" "$name" "$desc"
+  elif $optional; then
+    printf "  ${YELLOW}~${RESET}  %-22s  %s ${YELLOW}(optional)${RESET}\n" "$name" "$desc"
   else
     printf "  ${RED}✗${RESET}  %-22s  ${YELLOW}%s${RESET}\n" "$name" "$desc"
   fi
@@ -143,12 +155,19 @@ fi
 echo ""
 echo "──────────────────────────────────────"
 
+missing_count=$((missing_required_count + missing_optional_count))
+
 if [[ $missing_count -eq 0 ]]; then
   printf "${GREEN}${BOLD}All $total tools are installed.${RESET}\n"
 else
-  printf "${BOLD}%d/%d tools installed.${RESET}" "$ok_count" "$total"
-  printf "  ${RED}Missing: %s${RESET}\n" "$(IFS=', '; echo "${MISSING[*]}")"
+  printf "${BOLD}%d/%d tools installed.${RESET}\n" "$ok_count" "$total"
+  if [[ $missing_required_count -gt 0 ]]; then
+    printf "  ${RED}Missing (required): %s${RESET}\n" "$(IFS=', '; echo "${MISSING_REQUIRED[*]}")"
+  fi
+  if [[ $missing_optional_count -gt 0 ]]; then
+    printf "  ${YELLOW}Missing (optional): %s${RESET}\n" "$(IFS=', '; echo "${MISSING_OPTIONAL[*]}")"
+  fi
 fi
 
-# Exit 1 if anything is missing (useful in CI or scripting)
-[[ $missing_count -eq 0 ]]
+# Exit 1 only if required tools are missing (useful in CI or scripting)
+[[ $missing_required_count -eq 0 ]]
